@@ -3483,8 +3483,9 @@ public:
     DBUG_EXECUTE_IF("ha_sample_init_fail", return HA_ERR_TABLE_DEF_CHANGED;);
     int result;
     DBUG_ENTER("ha_sample_init");
-    DBUG_ASSERT(inited==NONE);
-    inited= (result= sample_init()) ? NONE: SAMPLING;
+    DBUG_ASSERT(inited == NONE);
+    result= sample_init();
+    inited= result ? NONE: SAMPLING;
     end_range= NULL;
     DBUG_RETURN(result);
   }
@@ -3493,7 +3494,7 @@ public:
   {
     DBUG_ENTER("ha_sample_end");
     DBUG_ASSERT(inited==SAMPLING);
-    inited=NONE;
+    inited= NONE;
     end_range= NULL;
     DBUG_RETURN(sample_end());
   }
