@@ -111,6 +111,11 @@ public:
   int rnd_end(void) override final;
   int rnd_next(uchar * buf) override final;
   int rnd_pos(uchar * buf, uchar * pos) override final;
+
+  int sample_init() override;
+  int sample_end() override;
+  int sample_next(uchar *buf) override;
+
   int remember_rnd_pos() override final;
   int restart_rnd_next(uchar * buf) override final;
   void position(const uchar * record) override final;

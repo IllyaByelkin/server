@@ -1036,7 +1036,7 @@ int_table_flags(HA_NULL_IN_KEY | HA_CAN_FULLTEXT | HA_CAN_SQL_HANDLER |
                 HA_CAN_BIT_FIELD | HA_CAN_RTREEKEYS | HA_CAN_REPAIR |
                 HA_CAN_VIRTUAL_COLUMNS | HA_CAN_EXPORT |
                 HA_HAS_RECORDS | HA_STATS_RECORDS_IS_EXACT |
-                HA_CAN_TABLES_WITHOUT_ROLLBACK),
+                HA_CAN_TABLES_WITHOUT_ROLLBACK | HA_NATIVE_SAMPLING),
 can_enable_indexes(0), bulk_insert_single_undo(BULK_INSERT_NONE)
 {}
 
@@ -2596,6 +2596,82 @@ int ha_maria::rnd_pos(uchar *buf, uchar *pos)
   return error;
 }
 
+int ha_maria::sample_init() {
+  return 0;
+}
+
+int ha_maria::sample_end() {
+  return 0;
+}
+
+static int probability[] = {30, 60, 90, 100};
+int ha_maria::sample_next(uchar *buf)
+{
+  DBUG_ENTER("ha_maria::external_lock");
+
+  MARIA_HA *info = this->file;
+  MARIA_SHARE *share= info->s;
+  PAGECACHE *pagecache= share->pagecache;
+  uchar *data, *end_of_data, *buff;
+
+  uint number_of_pages = share->state.state.data_file_length / share->block_size;
+  uint pageno;
+
+  do
+  {
+    my_bool accept;
+    do
+    {
+      accept = 0;
+      pageno= rand() % (number_of_pages - 1) + 1; // Page 0 is always bitmap
+
+      int page_fullness= _ma_bitmap_get_page_bits(info, &share->bitmap, pageno);
+
+      if (page_fullness > 0 && page_fullness < 5)
+      {
+        int rnd = rand() % 100;
+        if (rnd < probability[page_fullness - 1])
+        {
+          accept = 1;
+        }
+      }
+
+    } while (pageno % share->bitmap.pages_covered ==
+             0 || !accept); // Check that it's not a bitmap
+
+
+    if (!(buff= (uchar *) my_malloc(PSI_INSTRUMENT_ME, pagecache->block_size,
+                                    MYF(MY_WME))))
+      DBUG_RETURN(1);
+
+    buff= pagecache_read(pagecache, &info->dfile, pageno, 0, buff,
+                         PAGECACHE_READ_UNKNOWN_PAGE,
+                         PAGECACHE_LOCK_LEFT_UNLOCKED, 0);
+    if (!buff)
+    {
+      my_free(buff);
+      DBUG_RETURN(1);
+    }
+  }while ((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) != HEAD_PAGE); //read only head pages
+
+  uint number_of_records_in_page = (uint) buff[DIR_COUNT_OFFSET];
+
+  uint recpos = rand() % number_of_records_in_page;
+
+  uint offset= ma_recordpos_to_dir_entry(recpos);
+
+  if (((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) == UNALLOCATED_PAGE) ||
+      !(data= get_record_position(share, buff, offset, &end_of_data)))
+  {
+    DBUG_ASSERT(!maria_assert_if_crashed_table);
+    DBUG_PRINT("warning", ("Wrong directory entry in data block"));
+    my_errno= HA_ERR_RECORD_DELETED;
+    DBUG_RETURN(HA_ERR_RECORD_DELETED);
+  }
+  int ret = _ma_read_block_record2(info, buf, data, end_of_data);
+  my_free(buff);
+  DBUG_RETURN(ret);
+}
 
 void ha_maria::position(const uchar *record)
 {

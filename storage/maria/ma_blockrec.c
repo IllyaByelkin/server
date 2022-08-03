@@ -4447,7 +4447,7 @@ err:
        In this case *end_of_data is set.
 */
 
-static uchar *get_record_position(MARIA_SHARE *share, uchar *buff,
+uchar *get_record_position(MARIA_SHARE *share, uchar *buff,
                                  uint record_number, uchar **end_of_data)
 {
   uint block_size= share->block_size;

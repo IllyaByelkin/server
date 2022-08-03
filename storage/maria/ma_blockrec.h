@@ -312,3 +312,6 @@ my_bool _ma_block_start_trans_no_versioning(void *param);
 void _ma_block_update_status(void *param);
 void _ma_block_restore_status(void *param);
 my_bool _ma_block_check_status(void *param);
+
+uchar *get_record_position(MARIA_SHARE *share, uchar *buff,
+                                  uint record_number, uchar **end_of_data);
