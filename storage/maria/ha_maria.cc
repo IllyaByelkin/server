@@ -2642,33 +2642,33 @@ int ha_maria::sample_next(uchar *buf)
 
     if (!(buff= (uchar *) my_malloc(PSI_INSTRUMENT_ME, pagecache->block_size,
                                     MYF(MY_WME))))
+    {
       DBUG_RETURN(1);
+    }
 
     buff= pagecache_read(pagecache, &info->dfile, pageno, 0, buff,
                          PAGECACHE_READ_UNKNOWN_PAGE,
                          PAGECACHE_LOCK_LEFT_UNLOCKED, 0);
-    if (!buff)
-    {
-      my_free(buff);
-      DBUG_RETURN(1);
-    }
-  }while ((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) != HEAD_PAGE); //read only head pages
+
+
+  }while (!buff || (buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) != HEAD_PAGE); //read only head pages
 
   uint number_of_records_in_page = (uint) buff[DIR_COUNT_OFFSET];
 
-  uint recpos = rand() % number_of_records_in_page;
 
-  uint offset= ma_recordpos_to_dir_entry(recpos);
-
-  if (((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) == UNALLOCATED_PAGE) ||
-      !(data= get_record_position(share, buff, offset, &end_of_data)))
+  do
   {
-    DBUG_ASSERT(!maria_assert_if_crashed_table);
-    DBUG_PRINT("warning", ("Wrong directory entry in data block"));
-    my_errno= HA_ERR_RECORD_DELETED;
-    DBUG_RETURN(HA_ERR_RECORD_DELETED);
-  }
+    uint recpos= rand() % number_of_records_in_page;
+
+    uint offset= ma_recordpos_to_dir_entry(recpos);
+
+    data= get_record_position(share, buff, offset, &end_of_data);
+
+
+  }while (((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) == UNALLOCATED_PAGE) || !data); //For deleted rows
+
   int ret = _ma_read_block_record2(info, buf, data, end_of_data);
+
   my_free(buff);
   DBUG_RETURN(ret);
 }
