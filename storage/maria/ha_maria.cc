@@ -2613,6 +2613,7 @@ int ha_maria::sample_next(uchar *buf)
   MARIA_SHARE *share= info->s;
   PAGECACHE *pagecache= share->pagecache;
   uchar *data, *end_of_data, *buff;
+  THD *thd= table->in_use;
 
   uint number_of_pages = share->state.state.data_file_length / share->block_size;
   uint pageno;
@@ -2623,13 +2624,13 @@ int ha_maria::sample_next(uchar *buf)
     do
     {
       accept = 0;
-      pageno= rand() % (number_of_pages - 1) + 1; // Page 0 is always bitmap
+      pageno= (uint)(thd_rnd(thd) * (number_of_pages - 1)) + 1; // Page 0 is always bitmap
 
       int page_fullness= _ma_bitmap_get_page_bits(info, &share->bitmap, pageno);
 
       if (page_fullness > 0 && page_fullness < 5)
       {
-        int rnd = rand() % 100;
+        int rnd = (uint)(thd_rnd(thd) * 100);
         if (rnd < probability[page_fullness - 1])
         {
           accept = 1;
@@ -2658,7 +2659,7 @@ int ha_maria::sample_next(uchar *buf)
 
   do
   {
-    uint recpos= rand() % number_of_records_in_page;
+    uint recpos= (uint)(thd_rnd(thd) * number_of_records_in_page);
 
     uint offset= ma_recordpos_to_dir_entry(recpos);
 
