@@ -69,6 +69,7 @@
 #include "my_base.h"
 #include "sql_type_json.h"
 #include "json_table.h"
+#include "sql_statistics.h"
 
 /* this is to get the bison compilation windows warnings out */
 #ifdef _MSC_VER
@@ -329,6 +330,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   enum Column_definition::enum_column_versioning vers_column_versioning;
   enum plsql_cursor_attr_t plsql_cursor_attr;
   privilege_t privilege;
+  Statistic_collector *sample_collector;
 }
 
 %{
@@ -755,6 +757,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  BACKUP_SYM
 %token  <kwd>  BEGIN_MARIADB_SYM             /* SQL-2003-R, PLSQL-R */
 %token  <kwd>  BEGIN_ORACLE_SYM              /* SQL-2003-R, PLSQL-R */
+%token  <kwd>  BERNOULLI_SYM
 %token  <kwd>  BINLOG_SYM
 %token  <kwd>  BIT_SYM                       /* MYSQL-FUNC */
 %token  <kwd>  BLOCK_SYM
@@ -1461,7 +1464,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         ws_level_flag_desc ws_level_flag_reverse ws_level_flags
         opt_ws_levels ws_level_list ws_level_list_item ws_level_number
         ws_level_range ws_level_list_or_range bool
-        field_options last_field_options
+        field_options last_field_options system_or_bernoully
 
 %type <ulonglong_number>
         ulonglong_num real_ulonglong_num
@@ -1511,7 +1514,10 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %type <item_param> param_marker
 
 %type <item_num>
-        NUM_literal opt_table_sample
+        NUM_literal
+
+%type <sample_collector>
+        opt_table_sample
 
 %type <item_basic_constant> text_literal
 
@@ -11754,13 +11760,26 @@ join_table_parens:
           }
         ;
 
+system_or_bernoully:
+          SYSTEM    { $$= 1; }
+        | BERNOULLI_SYM { $$= 0; }
+        ;
+
 /* psergey */
 opt_table_sample:
-          /* empty */ { $$=0; }
-        | TABLESAMPLE SYSTEM '(' NUM_literal ')'
-        {
-          $$=$4;
-        }
+          /* empty */
+          {
+            $$= 0;
+          }
+        | TABLESAMPLE system_or_bernoully '(' NUM_literal ')'
+          {
+            if ($2)
+              $$= new (thd->mem_root)
+                System_staticitc_collector($4->val_real()/100.0);
+            else
+              $$= new (thd->mem_root)
+                Bernoulli_staticitc_collector($4->val_real()/100.0);
+          }
         ;
 
 table_primary_ident:
@@ -11778,7 +11797,9 @@ table_primary_ident:
             if ($3)
               $$->vers_conditions= Lex->vers_conditions;
             if ($6)
+            {
               $$->tablesample= $6;
+            }
           }
         ;
 
@@ -15728,6 +15749,7 @@ keyword_sp_var_and_label:
         | AUTO_SYM
         | AVG_ROW_LENGTH
         | AVG_SYM
+        | BERNOULLI_SYM
         | BLOCK_SYM
         | BODY_MARIADB_SYM
         | BTREE_SYM

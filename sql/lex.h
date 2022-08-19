@@ -87,6 +87,7 @@ SYMBOL symbols[] = {
   { "BACKUP",	        SYM(BACKUP_SYM)},
   { "BEFORE",	        SYM(BEFORE_SYM)},
   { "BEGIN",	        SYM(BEGIN_MARIADB_SYM)},
+  { "BERNOULLI",        SYM(BERNOULLI_SYM)},
   { "BETWEEN",		SYM(BETWEEN_SYM)},
   { "BIGINT",		SYM(BIGINT)},
   { "BINARY",		SYM(BINARY)},

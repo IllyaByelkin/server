@@ -34,6 +34,7 @@
 #include "sql_class.h"                          // THD
 #include "sql_base.h"
 #include "sql_sort.h"                           // SORT_ADDON_FIELD
+#include "sql_statistics.h"
 
 static int rr_quick(READ_RECORD *info);
 int rr_sequential(READ_RECORD *info);
@@ -324,10 +325,9 @@ bool init_read_record(READ_RECORD *info,THD *thd, TABLE *table,
   }
   else if (table->tablesample)
   {
-    double fract= table->tablesample->val_real() / 100.0;
-    info->sample_counter= (ha_rows)(table->file->records() * fract + 0.5);
+    info->tablesample= table->tablesample;
     info->read_record_func= rr_sequential_sample;
-    if (table->file->ha_sample_init())
+    if (table->tablesample->init(thd, table))
       DBUG_RETURN(1);
   }
   else
@@ -535,17 +535,10 @@ int rr_sequential(READ_RECORD *info)
 
 int rr_sequential_sample(READ_RECORD *info)
 {
-  int tmp;
-  if (!info->sample_counter)
-    return -1; // End of file
-
-  info->sample_counter--;
-  while ((tmp= info->table->file->ha_sample_next(info->record())))
-  {
-    tmp= rr_handle_error(info, tmp);
-    break;
-  }
-  return tmp;
+  int rc= info->tablesample->next(info->record());
+  if (rc)
+    rc= rr_handle_error(info, rc);
+  return rc;
 }
 
 

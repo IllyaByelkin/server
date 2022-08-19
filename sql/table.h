@@ -65,6 +65,7 @@ class Pushdown_derived;
 struct Name_resolution_context;
 class Table_function_json_table;
 class Open_table_context;
+class Statistic_collector;
 
 /*
   Used to identify NESTED_JOIN structures within a join (applicable only to
@@ -1516,7 +1517,7 @@ public:
   /* used in RBR Triggers */
   bool master_had_triggers;
 #endif
-  Item *tablesample;
+  Statistic_collector *tablesample;
   REGINFO reginfo;			/* field connections */
   MEM_ROOT mem_root;
   /**
@@ -2267,7 +2268,7 @@ struct TABLE_LIST
     *last_ptr= &next_global;
     for_insert_data= insert_data;
   }
-  Item *tablesample;
+  Statistic_collector *tablesample;
 
   /*
     List of tables local to a subquery (used by SQL_I_List). Considers

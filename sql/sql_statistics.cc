@@ -2672,6 +2672,73 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
 }
 
 
+bool System_staticitc_collector::init(THD *thd __attribute__((unused)),
+                                      TABLE *table)
+{
+  file= table->file;
+  double rows_d= file->records() * sample_fraction;
+  limit= (ha_rows)(rows_d);
+  if (thd_rnd(thd) <= rows_d - ((double)limit))
+    limit++;
+  if (file->ha_sample_init())
+    return (TRUE);
+  return (FALSE);
+}
+
+int System_staticitc_collector::next(uchar *record)
+{
+  int rc= 0;
+  if (!limit)
+    return HA_ERR_END_OF_FILE;
+
+  if (!(rc= file->ha_sample_next(record)))
+    limit --;
+  return rc;
+}
+
+void System_staticitc_collector::close()
+{
+  if (file)
+  {
+    file->ha_sample_end();
+    file= 0;
+  }
+}
+
+bool Bernoulli_staticitc_collector::init(THD *thd, TABLE *table)
+{
+  this->thd= thd;
+  this->file= table->file;
+  this->sample_fraction= sample_fraction;
+  if (file->ha_rnd_init(TRUE))
+    return (TRUE);
+  return (FALSE);
+}
+
+int Bernoulli_staticitc_collector::next(uchar *record)
+{
+  int rc;
+  while (!(rc= file->ha_rnd_next(record)))
+  {
+    if (thd->killed)
+      return 0;
+
+    if (thd_rnd(thd) <= sample_fraction)
+      return 0;
+  }
+  return rc;
+}
+
+void Bernoulli_staticitc_collector::close()
+{
+  if (file)
+  {
+    file->ha_rnd_end();
+    file= 0;
+  }
+}
+
+
 /**
   @brief 
   Collect statistical data for a table
@@ -2763,73 +2830,42 @@ int collect_statistics_for_table(THD *thd, TABLE *table)
 
   restore_record(table, s->default_values);
 
-  if(file->ha_table_flags() & HA_NATIVE_SAMPLING)
-  {
-    if(!(rc= file->ha_sample_init())) {
-      DEBUG_SYNC(table->in_use, "statistics_collection_start");
-      rows = file->records() * (thd->variables.sample_percentage / 100);
-
-      for (ulonglong i= 0; i < rows; ++i)
-      {
-        rc = file->ha_sample_next(table->record[0]);
-        if (thd->killed)
-          break;
-
-        if (rc)
-          break;
-        for (field_ptr= table->field; *field_ptr; field_ptr++)
-        {
-          table_field= *field_ptr;
-          if (!table_field->collected_stats)
-            continue;
-          if ((rc= table_field->collected_stats->add()))
-            break;
-        }
-        if (rc)
-          break;
-      }
-      file->ha_sample_end();
-    }
-    rc= (rc == 0 && !thd->killed) ? 0 : 1;
-  }
+  Statistic_collector *collector;
+  if (file->ha_table_flags() & HA_NATIVE_SAMPLING)
+    collector=
+      new (thd->mem_root) System_staticitc_collector(sample_fraction);
   else
+    collector=
+      new (thd->mem_root) Bernoulli_staticitc_collector(sample_fraction);
+
+  if (collector->init(thd, table))
+    DBUG_RETURN(1);
+  DEBUG_SYNC(table->in_use, "statistics_collection_start");
+
+  while ((rc= collector->next(table->record[0])) != HA_ERR_END_OF_FILE)
   {
+    if (thd->killed)
+      break;
 
-    /* Perform a full table scan to collect statistics on 'table's columns */
-    if (!(rc= file->ha_rnd_init(TRUE)))
+    if (rc)
+      break;
+
+    for (field_ptr= table->field; *field_ptr; field_ptr++)
     {
-      DEBUG_SYNC(table->in_use, "statistics_collection_start");
-
-      while ((rc= file->ha_rnd_next(table->record[0])) != HA_ERR_END_OF_FILE)
-      {
-        if (thd->killed)
-          break;
-
-        if (rc)
-          break;
-
-        if (thd_rnd(thd) <= sample_fraction)
-        {
-          for (field_ptr= table->field; *field_ptr; field_ptr++)
-          {
-            table_field= *field_ptr;
-            if (!table_field->collected_stats)
-              continue;
-            if ((rc= table_field->collected_stats->add()))
-              break;
-          }
-          if (rc)
-            break;
-          rows++;
-        }
-      }
-      file->ha_rnd_end();
+      table_field= *field_ptr;
+      if (!table_field->collected_stats)
+        continue;
+      if ((rc= table_field->collected_stats->add()))
+        break;
     }
-    rc= (rc == HA_ERR_END_OF_FILE && !thd->killed) ? 0 : 1;
+    if (rc)
+      break;
+    rows++;
   }
+  collector->close();
+  rc= (rc == HA_ERR_END_OF_FILE && !thd->killed) ? 0 : 1;
 
-
-  /* 
+  /*
     Calculate values for all statistical characteristics on columns and
     and for each field f of 'table' save them in the write_stat structure
     from the Field object for f. 

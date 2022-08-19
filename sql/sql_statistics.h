@@ -620,4 +620,48 @@ public:
 
 };
 
+class Statistic_collector: public Sql_alloc
+{
+  protected:
+  handler *file;
+  double sample_fraction;
+
+  public:
+  Statistic_collector(double fraction):
+    file(0),
+    sample_fraction(fraction)
+  {}
+  virtual ~Statistic_collector()
+  {}
+
+
+  virtual bool init(THD *thd, TABLE *table)= 0;
+  virtual int next(uchar *record)= 0;
+  virtual void close()= 0;
+};
+
+class System_staticitc_collector: public Statistic_collector
+{
+  ha_rows limit;
+  public:
+  System_staticitc_collector(double fraction):
+    Statistic_collector(fraction)
+  {}
+  bool init(THD *thd, TABLE *table) override;
+  int next(uchar *record) override;
+  void close() override;
+};
+
+class Bernoulli_staticitc_collector: public Statistic_collector
+{
+  THD *thd;
+  public:
+  Bernoulli_staticitc_collector(double fraction):
+    Statistic_collector(fraction)
+  {}
+  bool init(THD *thd, TABLE *table) override;
+  int next(uchar *record) override;
+  void close() override;
+};
+
 #endif /* SQL_STATISTICS_H */
