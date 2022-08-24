@@ -2597,10 +2597,17 @@ int ha_maria::rnd_pos(uchar *buf, uchar *pos)
 }
 
 int ha_maria::sample_init() {
+  if (!(this->file->s->statistics_page_buff = (uchar *) my_malloc(PSI_INSTRUMENT_ME, this->file->s->pagecache->block_size,
+                                      MYF(MY_WME))))
+  {
+    return(1);
+  }
   return 0;
 }
 
 int ha_maria::sample_end() {
+
+  my_free(this->file->s->statistics_page_buff);
   return 0;
 }
 
@@ -2612,11 +2619,12 @@ int ha_maria::sample_next(uchar *buf)
   MARIA_HA *info = this->file;
   MARIA_SHARE *share= info->s;
   PAGECACHE *pagecache= share->pagecache;
-  uchar *data, *end_of_data, *buff;
+  uchar *data, *end_of_data;
+  uchar *buff = share->statistics_page_buff;
   THD *thd= table->in_use;
 
   uint number_of_pages = share->state.state.data_file_length / share->block_size;
-  uint pageno;
+  uint pageno = 0;
 
   do
   {
@@ -2624,7 +2632,11 @@ int ha_maria::sample_next(uchar *buf)
     do
     {
       accept = 0;
-      pageno= (uint)(thd_rnd(thd) * (number_of_pages - 1)) + 1; // Page 0 is always bitmap
+      while (pageno % share->bitmap.pages_covered == 0)
+      {
+        pageno= (uint) (thd_rnd(thd) * (number_of_pages - 1)) +
+                1; // Page 0 is always bitmap
+      }
 
       int page_fullness= _ma_bitmap_get_page_bits(info, &share->bitmap, pageno);
 
@@ -2637,20 +2649,13 @@ int ha_maria::sample_next(uchar *buf)
         }
       }
 
-    } while (pageno % share->bitmap.pages_covered ==
-             0 || !accept); // Check that it's not a bitmap
+    } while (!accept); // Check that it's not a bitmap
 
 
-    if (!(buff= (uchar *) my_malloc(PSI_INSTRUMENT_ME, pagecache->block_size,
-                                    MYF(MY_WME))))
-    {
-      DBUG_RETURN(1);
-    }
 
     buff= pagecache_read(pagecache, &info->dfile, pageno, 0, buff,
                          PAGECACHE_READ_UNKNOWN_PAGE,
                          PAGECACHE_LOCK_LEFT_UNLOCKED, 0);
-
 
   }while (!buff || (buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) != HEAD_PAGE); //read only head pages
 
@@ -2665,12 +2670,10 @@ int ha_maria::sample_next(uchar *buf)
 
     data= get_record_position(share, buff, offset, &end_of_data);
 
-
   }while (((buff[PAGE_TYPE_OFFSET] & PAGE_TYPE_MASK) == UNALLOCATED_PAGE) || !data); //For deleted rows
 
   int ret = _ma_read_block_record2(info, buf, data, end_of_data);
 
-  my_free(buff);
   DBUG_RETURN(ret);
 }
 

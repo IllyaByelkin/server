@@ -839,6 +839,8 @@ typedef struct st_maria_share
   */
   uint last_insert_page;
   pgcache_page_no_t last_insert_bitmap;
+
+  uchar *statistics_page_buff;
 } MARIA_SHARE;
 
 
